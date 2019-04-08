@@ -1,0 +1,11 @@
+[package]
+name = "pergaminho"
+version = "0.1.0"
+authors = ["Erich Gubler <erichdongubler@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+chrono = "0.4.6"
+url = "1.7.2"
+vec1 = "1.4.0"
+derive_more = "0.14.0"
