@@ -7,7 +7,7 @@ mod archivist {
         use {
             chrono::{DateTime, FixedOffset},
             derive_more::Display,
-            std::{collections::BTreeMap, path::PathBuf},
+            std::{collections::BTreeMap, ops::Deref, path::PathBuf},
             url::Url,
             vec1::Vec1,
         };
@@ -26,6 +26,28 @@ mod archivist {
             }
         }
 
+        impl Deref for Prose {
+            type Target = str;
+
+            fn deref(&self) -> &str {
+                &*self.0
+            }
+        }
+
+        #[derive(Clone, Debug)]
+        pub struct LinkElement {
+            pub content: Option<Box<SpanElement>>,
+            pub kind: LinkElementKind,
+        }
+
+        #[derive(Clone, Debug)]
+        pub enum LinkElementKind {
+            Url(Url),
+            // Person(PersonId),
+            // Place(PlaceId),
+            // Tag(TagId),
+        }
+
         #[derive(Clone, Debug)]
         pub enum SpanElement {
             PhysicalSourcePageBegin {
@@ -36,10 +58,7 @@ mod archivist {
             Emphasis(Box<SpanElement>),
             Strong(Box<SpanElement>),
             Strikethrough(Box<SpanElement>),
-            UrlLink(Url),
-            PersonLink(PersonId),
-            PlaceLink(PlaceId),
-            TagLink(TagId),
+            Link(LinkElement),
             Group(Vec1<SpanElement>),
         }
 
@@ -58,16 +77,30 @@ mod archivist {
 
         #[derive(Clone, Debug)]
         pub enum ListElementMarker {
-            Number { start: u32 },
-            Letter { start: u32, uppercase: bool },
-            RomanNumeral { start: u32, uppercase: bool },
-            Custom(char),
+            Unordered,
+            Ordered,
         }
 
         #[derive(Clone, Debug)]
         pub struct ListElement {
-            sigil: Option<ListElementMarker>,
-            items: Vec1<Vec1<BlockElement>>,
+            pub marker: ListElementMarker,
+            pub items: Vec1<Vec1<BlockElement>>,
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        pub enum HeaderLevel {
+            One,
+            Two,
+            Three,
+            Four,
+            Five,
+            Six,
+        }
+
+        #[derive(Clone, Debug)]
+        pub struct HeaderElement {
+            pub text: SpanElement,
+            pub level: HeaderLevel,
         }
 
         #[derive(Clone, Debug)]
@@ -76,7 +109,7 @@ mod archivist {
             Media(MediaElement),
             BlockQuote(SpanElement),
             List(ListElement),
-            Header,
+            Header(HeaderElement),
         }
 
         #[derive(Clone, Debug)]
@@ -89,7 +122,7 @@ mod archivist {
             pub fn now() -> Self {
                 use chrono::Local;
                 Self {
-                    // FIXME: This LOOKS correct? Got this from:
+                    // FIXME: This is NOT correct. Got this from:
                     // https://github.com/chronotope/chrono/pull/271/files#diff-8daac88609c52af7718d9f334e7a2bf7R293
                     created: Local::now().with_timezone(&FixedOffset::east(0)),
                     last_modified: Local::now().with_timezone(&FixedOffset::east(0)),
@@ -150,10 +183,10 @@ mod archivist {
             pub subtitle: Option<Prose>,
             pub content_dates: ContentDates,
             pub elements: Vec1<BlockElement>,
-            pub notes: Vec<Note>,
-            pub tags: Vec<TagId>,
-            pub places: Vec<PlaceId>, // TODO: Should this just be a single place?
-            pub people: Vec<PersonId>,
+            // pub notes: Vec<Note>,
+            // pub tags: Vec<TagId>,
+            // pub places: Vec<PlaceId>, // TODO: Should this just be a single place?
+            // pub people: Vec<PersonId>,
         }
 
         /// Subset of `String` of non-line characters separated by newlines.
@@ -189,9 +222,9 @@ mod archivist {
             pub span: EntryContentSpan,
             pub content_dates: ContentDates,
             pub text: Vec1<BlockElement>,
-            pub tags: Vec<TagId>,
-            pub places: Vec<PlaceId>,
-            pub people: Vec<PersonId>,
+            // pub tags: Vec<TagId>,
+            // pub places: Vec<PlaceId>,
+            // pub people: Vec<PersonId>,
         }
 
         #[derive(Clone, Debug)]
@@ -215,15 +248,13 @@ mod archivist {
 
         #[derive(Clone, Debug, Default)]
         pub struct Journal {
-            pub notes: BTreeMap<NoteId, NoteEntry>,
             pub entries: BTreeMap<EntryId, Entry>,
-            pub tags: BTreeMap<TagId, Tag>,
-            pub places: BTreeMap<PlaceId, Place>,
-            pub people: BTreeMap<PersonId, Person>,
+            // pub notes: BTreeMap<NoteId, NoteEntry>,
+            // pub tags: BTreeMap<TagId, Tag>,
+            // pub places: BTreeMap<PlaceId, Place>,
+            // pub people: BTreeMap<PersonId, Person>,
         }
     }
-
-    pub use self::model::Journal;
 }
 
 mod html {
@@ -269,52 +300,211 @@ mod html {
 }
 
 use {
-    archivist::{Entry, Journal},
-    html::DisplayAsHtml,
-    std::fmt::{Formatter, Result as FmtResult},
+    self::html::DisplayAsHtml,
+    archivist::model::{BlockElement, ContentDates, Entry, EntryId, HeaderElement, HeaderLevel, Identifier, Journal, LinkElement, LinkElementKind, ListElement, ListElementMarker, MediaElement, MediaReference, Prose, SpanElement},
+    askama_escape::{Html, MarkupDisplay},
+    std::fmt::{Display, Formatter, Result as FmtResult},
+    vec1::Vec1,
 };
 
 impl DisplayAsHtml for Journal {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         let Self {
-            notes,
             entries,
-            tags,
-            places,
-            people,
+            // notes,
+            // tags,
+            // places,
+            // people,
         } = self;
-
-        write!(f, "Journal time!\n")?;
 
         for (
             entry_id,
             Entry {
                 title,
                 subtitle,
-                content_dates,
+                content_dates:
+                    ContentDates {
+                        created,
+                        last_modified,
+                    },
                 elements,
-                notes,
-                tags,
-                places,
-                people,
+                // notes,
+                // tags,
+                // places,
+                // people,
             },
         ) in entries.iter()
         {
             write!(f, "Entry ID {}:\n\n", entry_id)?;
+
+            write!(f, "<header>")?;
+            {
+                write!(f, "<h2>{}</h2>", title)?;
+                if let Some(subtitle) = subtitle {
+                    write!(f, "<div class=\"subtitle\">{}</h2>", subtitle)?;
+                }
+                write!(f, "<div class=\"date\">{}</div>", created)?;
+                write!(
+                    f,
+                    "<div class=\"date\">Last modified: {}</div>",
+                    last_modified
+                )?;
+            }
+            write!(f, "</header>")?;
+            write!(f, "<article>")?;
+            for element in elements.iter() {
+                write!(f, "{}", element.html())?;
+            }
+            write!(f, "</article>")?;
         }
 
         Ok(())
     }
 }
 
-fn main() {
-    use {
-        archivist::model::{
-            BlockElement, ContentDates, Entry, EntryId, Identifier, Prose, SpanElement,
-        },
-        vec1::Vec1,
-    };
+impl DisplayAsHtml for BlockElement {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        use BlockElement::*;
 
+        match self {
+            Paragraph(span) => write!(f, "<p>{}</p>", span.html()),
+            Media(media) => write!(f, "{}", media.html()),
+            BlockQuote(span) => write!(f, "<blockquote>{}</blockquote>", span.html()),
+            List(list) => write!(f, "{}", list.html()),
+            Header(header) => write!(f, "{}", header.html()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AsSrcAttr<'a>(pub &'a MediaReference);
+
+impl Display for AsSrcAttr<'_> {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        use MediaReference::*;
+
+        match self.0 {
+            Link(url) => write!(f, "{}", MarkupDisplay::new_unsafe(url.as_str(), Html)),
+            LocalPath(path) => write!(f, "{}", MarkupDisplay::new_unsafe(path.display(), Html)),
+        }
+    }
+}
+
+impl DisplayAsHtml for SpanElement {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        use SpanElement::*;
+
+        match self {
+            PhysicalSourcePageBegin {
+                page_index,
+                source_photo,
+            } => {
+                write!(
+                    f,
+                    "<span class=\"source-page-ref\" data-idx=\"{}\"",
+                    page_index
+                )?;
+                if let Some(source_photo) = source_photo {
+                    write!(f, " data-src=\"{}\"", AsSrcAttr(source_photo))?;
+                }
+                write!(f, "></span>")?;
+                Ok(())
+            }
+            Text(t) => write!(f, "{}", MarkupDisplay::new_unsafe(&*t, Html)),
+            Emphasis(span) => write!(f, "<em>{}</em>", span.html()),
+            Strong(span) => write!(f, "<strong>{}</strong>", span.html()),
+            Strikethrough(span) => write!(f, "<del>{}</del>", span.html()), // XXX: Is this correct? HTML5 can treat this specially,
+            Link(link) => {
+                use LinkElementKind::*;
+
+                let LinkElement { kind, content } = link;
+                match kind {
+                    Url(url) => {
+                        let link_writer = || MarkupDisplay::new_unsafe(url.as_str(), Html);
+
+                        write!(f, "<a href=\"{}\">", link_writer())?;
+                        if let Some(content) = content {
+                            write!(f, "{}", content.html())?;
+                        } else {
+                            write!(f, "{}", link_writer())?;
+                        }
+                        write!(f, "</a>")
+                    }
+                }
+            }
+            Group(spans) => {
+                for span in spans.iter() {
+                    write!(f, "{}", span.html())?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl DisplayAsHtml for ListElement {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        use ListElementMarker::*;
+
+        let Self { marker, items } = self;
+
+        let list_type_char = match marker {
+            Unordered => 'u',
+            Ordered => 'o',
+        };
+
+        write!(f, "<{}l>", list_type_char)?;
+        for block_item_list in items.iter() {
+            write!(f, "<li>")?;
+            for block_item in block_item_list.iter() {
+                write!(f, "{}", block_item.html())?;
+            }
+            write!(f, "</li>")?;
+        }
+        write!(f, "</{}l>", list_type_char)
+    }
+}
+
+impl DisplayAsHtml for MediaElement {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        use MediaElement::*;
+
+        match self {
+            Image(media_ref) => write!(f, "<img src=\"{}\">", AsSrcAttr(media_ref)),
+            Video(media_ref) => write!(
+                f,
+                "<audio controls src=\"{}\"></audio>",
+                AsSrcAttr(media_ref)
+            ),
+            Audio(media_ref) => write!(
+                f,
+                "<video controls src=\"{}\"></video>",
+                AsSrcAttr(media_ref)
+            ),
+        }
+    }
+}
+
+impl DisplayAsHtml for HeaderElement {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        use HeaderLevel::*;
+
+        let Self { text, level } = self;
+
+        let level = match level {
+            One => 1,
+            Two => 2,
+            Three => 3,
+            Four => 4,
+            Five => 5,
+            Six => 6,
+        };
+
+        write!(f, "<h{level}>{}</h{level}>", text.html(), level = level)
+    }
+}
+
+fn main() {
     let mut journal = Journal::default();
 
     journal.entries.insert(
@@ -326,11 +516,11 @@ fn main() {
             elements: Vec1::new(BlockElement::Paragraph(SpanElement::Text(Prose::new(
                 "asdf".to_owned(),
             )))),
-            notes: Vec::new(),
-            tags: Vec::new(),
-            places: Vec::new(),
-            people: Vec::new(),
+            // notes: Vec::new(),
+            // tags: Vec::new(),
+            // places: Vec::new(),
+            // people: Vec::new(),
         },
     );
-    println!("{}", Journal::default().html());
+    println!("{}", journal.html());
 }
