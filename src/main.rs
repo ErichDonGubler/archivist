@@ -529,5 +529,22 @@ fn main() {
             // people: Vec::new(),
         },
     );
+
+    let asdf = r#"
++++
+id = "wat"
+title = "hay sup"
+subtitle = "nuttin much"
+content_dates = {
+    last_modified: 2019-04-13 20:22:01 +00:00
+    created: 2019-04-13 20:22:01 +00:00
+}
++++
+
+asdf
+
+"#;
     println!("{}", journal.html());
 }
+
+
