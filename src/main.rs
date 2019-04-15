@@ -258,7 +258,16 @@ mod archivist {
 }
 
 mod html {
-    use std::fmt::{Display, Formatter, Result as FmtResult};
+    use {
+        crate::archivist::model::{
+            BlockElement, ContentDates, Entry, EntryId, HeaderElement, HeaderLevel, Identifier,
+            Journal, LinkElement, LinkElementKind, ListElement, ListElementMarker, MediaElement,
+            MediaReference, Prose, SpanElement,
+        },
+        askama_escape::{Html, MarkupDisplay},
+        std::fmt::{Display, Formatter, Result as FmtResult},
+        vec1::Vec1,
+    };
 
     pub trait DisplayAsHtml {
         fn fmt(&self, f: &mut Formatter) -> FmtResult;
@@ -297,212 +306,210 @@ mod html {
             <T as DisplayAsHtml>::fmt(&self.0, f)
         }
     }
-}
 
-use {
-    self::html::DisplayAsHtml,
-    archivist::model::{BlockElement, ContentDates, Entry, EntryId, HeaderElement, HeaderLevel, Identifier, Journal, LinkElement, LinkElementKind, ListElement, ListElementMarker, MediaElement, MediaReference, Prose, SpanElement},
-    askama_escape::{Html, MarkupDisplay},
-    std::fmt::{Display, Formatter, Result as FmtResult},
-    vec1::Vec1,
-};
-
-impl DisplayAsHtml for Journal {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        let Self {
-            entries,
-            // notes,
-            // tags,
-            // places,
-            // people,
-        } = self;
-
-        for (
-            entry_id,
-            Entry {
-                title,
-                subtitle,
-                content_dates:
-                    ContentDates {
-                        created,
-                        last_modified,
-                    },
-                elements,
+    impl DisplayAsHtml for Journal {
+        fn fmt(&self, f: &mut Formatter) -> FmtResult {
+            let Self {
+                entries,
                 // notes,
                 // tags,
                 // places,
                 // people,
-            },
-        ) in entries.iter()
-        {
-            write!(f, "Entry ID {}:\n\n", entry_id)?;
+            } = self;
 
-            write!(f, "<header>")?;
+            for (
+                entry_id,
+                Entry {
+                    title,
+                    subtitle,
+                    content_dates:
+                        ContentDates {
+                            created,
+                            last_modified,
+                        },
+                    elements,
+                    // notes,
+                    // tags,
+                    // places,
+                    // people,
+                },
+            ) in entries.iter()
             {
-                write!(f, "<h2>{}</h2>", title)?;
-                if let Some(subtitle) = subtitle {
-                    write!(f, "<div class=\"subtitle\">{}</h2>", subtitle)?;
+                write!(f, "<header data-id=\"{}\">", &*entry_id)?;
+                {
+                    write!(f, "<h2>{}</h2>", title)?;
+                    if let Some(subtitle) = subtitle {
+                        write!(f, "<div class=\"subtitle\">{}</h2>", subtitle)?;
+                    }
+                    write!(f, "<div class=\"date\">{}</div>", created)?;
+                    write!(
+                        f,
+                        "<div class=\"date\">Last modified: {}</div>",
+                        last_modified
+                    )?;
                 }
-                write!(f, "<div class=\"date\">{}</div>", created)?;
-                write!(
-                    f,
-                    "<div class=\"date\">Last modified: {}</div>",
-                    last_modified
-                )?;
-            }
-            write!(f, "</header>")?;
-            write!(f, "<article>")?;
-            for element in elements.iter() {
-                write!(f, "{}", element.html())?;
-            }
-            write!(f, "</article>")?;
-        }
-
-        Ok(())
-    }
-}
-
-impl DisplayAsHtml for BlockElement {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        use BlockElement::*;
-
-        match self {
-            Paragraph(span) => write!(f, "<p>{}</p>", span.html()),
-            Media(media) => write!(f, "{}", media.html()),
-            BlockQuote(span) => write!(f, "<blockquote>{}</blockquote>", span.html()),
-            List(list) => write!(f, "{}", list.html()),
-            Header(header) => write!(f, "{}", header.html()),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AsSrcAttr<'a>(pub &'a MediaReference);
-
-impl Display for AsSrcAttr<'_> {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        use MediaReference::*;
-
-        match self.0 {
-            Link(url) => write!(f, "{}", MarkupDisplay::new_unsafe(url.as_str(), Html)),
-            LocalPath(path) => write!(f, "{}", MarkupDisplay::new_unsafe(path.display(), Html)),
-        }
-    }
-}
-
-impl DisplayAsHtml for SpanElement {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        use SpanElement::*;
-
-        match self {
-            PhysicalSourcePageBegin {
-                page_index,
-                source_photo,
-            } => {
-                write!(
-                    f,
-                    "<span class=\"source-page-ref\" data-idx=\"{}\"",
-                    page_index
-                )?;
-                if let Some(source_photo) = source_photo {
-                    write!(f, " data-src=\"{}\"", AsSrcAttr(source_photo))?;
+                write!(f, "</header>")?;
+                write!(f, "<article>")?;
+                for element in elements.iter() {
+                    write!(f, "{}", element.html())?;
                 }
-                write!(f, "></span>")?;
-                Ok(())
+                write!(f, "</article>")?;
             }
-            Text(t) => write!(f, "{}", MarkupDisplay::new_unsafe(&*t, Html)),
-            Emphasis(span) => write!(f, "<em>{}</em>", span.html()),
-            Strong(span) => write!(f, "<strong>{}</strong>", span.html()),
-            Strikethrough(span) => write!(f, "<del>{}</del>", span.html()), // XXX: Is this correct? HTML5 can treat this specially,
-            Link(link) => {
-                use LinkElementKind::*;
 
-                let LinkElement { kind, content } = link;
-                match kind {
-                    Url(url) => {
-                        let link_writer = || MarkupDisplay::new_unsafe(url.as_str(), Html);
+            Ok(())
+        }
+    }
 
-                        write!(f, "<a href=\"{}\">", link_writer())?;
-                        if let Some(content) = content {
-                            write!(f, "{}", content.html())?;
-                        } else {
-                            write!(f, "{}", link_writer())?;
+    impl DisplayAsHtml for BlockElement {
+        fn fmt(&self, f: &mut Formatter) -> FmtResult {
+            use BlockElement::*;
+
+            match self {
+                Paragraph(span) => write!(f, "<p>{}</p>", span.html()),
+                Media(media) => write!(f, "{}", media.html()),
+                BlockQuote(span) => write!(f, "<blockquote>{}</blockquote>", span.html()),
+                List(list) => write!(f, "{}", list.html()),
+                Header(header) => write!(f, "{}", header.html()),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct AsSrcAttr<'a>(pub &'a MediaReference);
+
+    impl Display for AsSrcAttr<'_> {
+        fn fmt(&self, f: &mut Formatter) -> FmtResult {
+            use MediaReference::*;
+
+            match self.0 {
+                Link(url) => write!(f, "{}", MarkupDisplay::new_unsafe(url.as_str(), Html)),
+                LocalPath(path) => write!(f, "{}", MarkupDisplay::new_unsafe(path.display(), Html)),
+            }
+        }
+    }
+
+    impl DisplayAsHtml for SpanElement {
+        fn fmt(&self, f: &mut Formatter) -> FmtResult {
+            use SpanElement::*;
+
+            match self {
+                PhysicalSourcePageBegin {
+                    page_index,
+                    source_photo,
+                } => {
+                    write!(
+                        f,
+                        "<span class=\"source-page-ref\" data-idx=\"{}\"",
+                        page_index
+                    )?;
+                    if let Some(source_photo) = source_photo {
+                        write!(f, " data-src=\"{}\"", AsSrcAttr(source_photo))?;
+                    }
+                    write!(f, "></span>")?;
+                    Ok(())
+                }
+                Text(t) => write!(f, "{}", MarkupDisplay::new_unsafe(&*t, Html)),
+                Emphasis(span) => write!(f, "<em>{}</em>", span.html()),
+                Strong(span) => write!(f, "<strong>{}</strong>", span.html()),
+                Strikethrough(span) => write!(f, "<del>{}</del>", span.html()), // XXX: Is this correct? HTML5 can treat this specially,
+                Link(link) => {
+                    use LinkElementKind::*;
+
+                    let LinkElement { kind, content } = link;
+                    match kind {
+                        Url(url) => {
+                            let link_writer = || MarkupDisplay::new_unsafe(url.as_str(), Html);
+
+                            write!(f, "<a href=\"{}\">", link_writer())?;
+                            if let Some(content) = content {
+                                write!(f, "{}", content.html())?;
+                            } else {
+                                write!(f, "{}", link_writer())?;
+                            }
+                            write!(f, "</a>")
                         }
-                        write!(f, "</a>")
                     }
                 }
-            }
-            Group(spans) => {
-                for span in spans.iter() {
-                    write!(f, "{}", span.html())?;
+                Group(spans) => {
+                    for span in spans.iter() {
+                        write!(f, "{}", span.html())?;
+                    }
+                    Ok(())
                 }
-                Ok(())
             }
         }
     }
-}
 
-impl DisplayAsHtml for ListElement {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        use ListElementMarker::*;
+    impl DisplayAsHtml for ListElement {
+        fn fmt(&self, f: &mut Formatter) -> FmtResult {
+            use ListElementMarker::*;
 
-        let Self { marker, items } = self;
+            let Self { marker, items } = self;
 
-        let list_type_char = match marker {
-            Unordered => 'u',
-            Ordered => 'o',
-        };
+            let list_type_char = match marker {
+                Unordered => 'u',
+                Ordered => 'o',
+            };
 
-        write!(f, "<{}l>", list_type_char)?;
-        for block_item_list in items.iter() {
-            write!(f, "<li>")?;
-            for block_item in block_item_list.iter() {
-                write!(f, "{}", block_item.html())?;
+            write!(f, "<{}l>", list_type_char)?;
+            for block_item_list in items.iter() {
+                write!(f, "<li>")?;
+                for block_item in block_item_list.iter() {
+                    write!(f, "{}", block_item.html())?;
+                }
+                write!(f, "</li>")?;
             }
-            write!(f, "</li>")?;
-        }
-        write!(f, "</{}l>", list_type_char)
-    }
-}
-
-impl DisplayAsHtml for MediaElement {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        use MediaElement::*;
-
-        match self {
-            Image(media_ref) => write!(f, "<img src=\"{}\">", AsSrcAttr(media_ref)),
-            Video(media_ref) => write!(
-                f,
-                "<audio controls src=\"{}\"></audio>",
-                AsSrcAttr(media_ref)
-            ),
-            Audio(media_ref) => write!(
-                f,
-                "<video controls src=\"{}\"></video>",
-                AsSrcAttr(media_ref)
-            ),
+            write!(f, "</{}l>", list_type_char)
         }
     }
-}
 
-impl DisplayAsHtml for HeaderElement {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        use HeaderLevel::*;
+    impl DisplayAsHtml for MediaElement {
+        fn fmt(&self, f: &mut Formatter) -> FmtResult {
+            use MediaElement::*;
 
-        let Self { text, level } = self;
+            match self {
+                Image(media_ref) => write!(f, "<img src=\"{}\">", AsSrcAttr(media_ref)),
+                Video(media_ref) => write!(
+                    f,
+                    "<audio controls src=\"{}\"></audio>",
+                    AsSrcAttr(media_ref)
+                ),
+                Audio(media_ref) => write!(
+                    f,
+                    "<video controls src=\"{}\"></video>",
+                    AsSrcAttr(media_ref)
+                ),
+            }
+        }
+    }
 
-        let level = match level {
-            One => 1,
-            Two => 2,
-            Three => 3,
-            Four => 4,
-            Five => 5,
-            Six => 6,
-        };
+    impl DisplayAsHtml for HeaderElement {
+        fn fmt(&self, f: &mut Formatter) -> FmtResult {
+            use HeaderLevel::*;
 
-        write!(f, "<h{level}>{}</h{level}>", text.html(), level = level)
+            let Self { text, level } = self;
+
+            let level = match level {
+                One => 1,
+                Two => 2,
+                Three => 3,
+                Four => 4,
+                Five => 5,
+                Six => 6,
+            };
+
+            write!(f, "<h{level}>{}</h{level}>", text.html(), level = level)
+        }
     }
 }
+
+use {
+    self::html::DisplayAsHtml,
+    archivist::model::{
+        BlockElement, ContentDates, Entry, EntryId, Identifier, Journal, Prose, SpanElement,
+    },
+    vec1::Vec1,
+};
 
 fn main() {
     let mut journal = Journal::default();
