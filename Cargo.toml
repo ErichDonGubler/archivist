@@ -6,6 +6,6 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4.6"
-url = "1.7.2"
+url = "2.1.0"
 vec1 = "1.4.0"
 derive_more = "0.14.0"
