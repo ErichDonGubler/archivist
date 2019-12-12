@@ -5,7 +5,7 @@ authors = ["Erich Gubler <erichdongubler@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-chrono = "0.4.6"
+chrono = "0.4.10"
 url = "2.1.0"
 vec1 = "1.4.0"
 derive_more = "0.99.2"
