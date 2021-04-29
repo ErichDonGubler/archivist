@@ -1,0 +1,18 @@
+version: 2
+updates:
+- package-ecosystem: cargo
+  directory: "/"
+  schedule:
+    interval: daily
+    time: "12:00"
+  open-pull-requests-limit: 10
+  ignore:
+  - dependency-name: url
+    versions:
+    - 2.2.0
+  - dependency-name: derive_more
+    versions:
+    - 0.99.11
+  - dependency-name: vec1
+    versions:
+    - 1.6.0
